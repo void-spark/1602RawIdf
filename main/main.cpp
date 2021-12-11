@@ -17,6 +17,8 @@
 
 static const char *TAG = "app";
 
+#define BTN_BOOT GPIO_NUM_0
+
 #define GPIO_OUTPUT_IO_RS    GPIO_NUM_13
 #define GPIO_OUTPUT_IO_E     GPIO_NUM_27
 
@@ -28,6 +30,26 @@ static const char *TAG = "app";
 static const char* ota_url = "http://raspberrypi.fritz.box:8032/esp32/1602RawIdf.bin";
 
 static hd44780_t lcd;
+
+static TimerHandle_t buttonTimer;
+
+static void buttonPressed() {
+    ESP_ERROR_CHECK(hd44780_clear(&lcd));
+    ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button!"));
+
+    mqttPublish("devices/receiver/doorbell/reset", "true", 4, 2, 0);
+}
+
+static void buttonTimerCallback(TimerHandle_t xTimer) { 
+    int level = gpio_get_level(BTN_BOOT);
+
+    // https://www.embedded.com/electronics-blogs/break-points/4024981/My-favorite-software-debouncers
+    static uint16_t state = 0; // Current debounce status
+    state=(state<<1) | !level | 0xe000;
+    if(state==0xf000) {
+        buttonPressed();
+    }
+}
 
 static void ota_task(void * pvParameter) {
     ESP_LOGI(TAG, "Starting OTA update...");
@@ -66,7 +88,31 @@ static bool handleAnyMessage(const char* topic, const char* data) {
     if(strcmp(topic,"devices/the1602") == 0) {
 
         ESP_ERROR_CHECK(hd44780_gotoxy(&lcd, 0, 0));
-        ESP_ERROR_CHECK(hd44780_puts(&lcd, data));
+
+        int pos = 0;
+        while (*data != 0 && *data != '\n') {
+            ESP_ERROR_CHECK(hd44780_putc(&lcd, *data));
+            data++;
+            pos++;
+        }
+        for(; pos < 16; pos++) {
+            ESP_ERROR_CHECK(hd44780_putc(&lcd, ' '));
+        }
+
+        ESP_ERROR_CHECK(hd44780_gotoxy(&lcd, 0, 1));
+
+        int pos2 = 0;
+        if(*data == '\n') {
+            data++;
+            while (*data != 0) {
+                ESP_ERROR_CHECK(hd44780_putc(&lcd, *data));
+                data++;
+                pos2++;
+            }
+        }
+        for(; pos2 < 16; pos2++) {
+            ESP_ERROR_CHECK(hd44780_putc(&lcd, ' '));
+        }
 
         return true;
     }
@@ -100,20 +146,23 @@ extern "C" void app_main() {
     // Initialize WiFi
     wifiStart();
 
-    ESP_ERROR_CHECK(hd44780_gotoxy(&lcd, 0, 1));
-    ESP_ERROR_CHECK(hd44780_puts(&lcd, "Connecting.."));
+    ESP_ERROR_CHECK(hd44780_clear(&lcd));
+    ESP_ERROR_CHECK(hd44780_puts(&lcd, "WiFi..."));
 
 
     ESP_LOGI(TAG, "Waiting for wifi");
     wifiWait();
 
-    ESP_ERROR_CHECK(hd44780_gotoxy(&lcd, 0, 1));
-    ESP_ERROR_CHECK(hd44780_puts(&lcd, "Connected!"));
+    ESP_ERROR_CHECK(hd44780_clear(&lcd));
+    ESP_ERROR_CHECK(hd44780_puts(&lcd, "SNTP..."));
 
     ESP_LOGI(TAG, "Initializing SNTP");
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, "pool.ntp.org");
     sntp_init();
+
+    ESP_ERROR_CHECK(hd44780_clear(&lcd));
+    ESP_ERROR_CHECK(hd44780_puts(&lcd, "MQTT..."));
 
     mqttStart(subscribeTopics, handleMessage, handleAnyMessage);
 
@@ -121,6 +170,17 @@ extern "C" void app_main() {
 
     mqttWait();
 
+    gpio_pad_select_gpio(BTN_BOOT);
+    gpio_set_direction(BTN_BOOT, GPIO_MODE_INPUT);
+    buttonTimer = xTimerCreate("ButtonTimer", (5 / portTICK_PERIOD_MS), pdTRUE, (void *) 0, buttonTimerCallback);
+
+    xTimerStart(buttonTimer, 0);
+
+    char ready[16 + 1];
+    snprintf(ready, sizeof(ready), "Ready! %db", esp_get_minimum_free_heap_size());
+    ESP_ERROR_CHECK(hd44780_clear(&lcd));
+    ESP_ERROR_CHECK(hd44780_puts(&lcd, ready));
 
     printf("Minimum free heap size: %d bytes\n", esp_get_minimum_free_heap_size());
+
 }

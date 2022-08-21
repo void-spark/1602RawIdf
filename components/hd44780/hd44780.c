@@ -1,6 +1,6 @@
 #include <string.h>
 #include <esp_system.h>
-#include <esp_log.h> // to include ets_sys.h
+#include <esp_rom_sys.h>
 #include "hd44780.h"
 
 #define MS 1000
@@ -41,10 +41,10 @@
 #define ARG_FS_2_LINES      BV(3)
 #define ARG_FS_FONT_5X10    BV(2)
 
-#define init_delay()   do { ets_delay_us(DELAY_INIT); } while (0)
-#define short_delay()  do { ets_delay_us(DELAY_CMD_SHORT); } while (0)
-#define long_delay()   do { ets_delay_us(DELAY_CMD_LONG); } while (0)
-#define toggle_delay() do { ets_delay_us(DELAY_TOGGLE); } while (0)
+#define init_delay()   do { esp_rom_delay_us(DELAY_INIT); } while (0)
+#define short_delay()  do { esp_rom_delay_us(DELAY_CMD_SHORT); } while (0)
+#define long_delay()   do { esp_rom_delay_us(DELAY_CMD_LONG); } while (0)
+#define toggle_delay() do { esp_rom_delay_us(DELAY_TOGGLE); } while (0)
 
 #define CHECK_ARG(VAL) do { if (!(VAL)) return ESP_ERR_INVALID_ARG; } while (0)
 #define CHECK(x) do { esp_err_t __; if ((__ = x) != ESP_OK) return __; } while (0)
@@ -68,7 +68,7 @@ static esp_err_t write_nibble(const hd44780_t *lcd, uint8_t b, bool rs)
     else
     {
         CHECK(gpio_set_level(lcd->pins.rs, rs));
-        ets_delay_us(1); // Address Setup time >= 60ns.
+        esp_rom_delay_us(1); // Address Setup time >= 60ns.
         CHECK(gpio_set_level(lcd->pins.e, true));
         CHECK(gpio_set_level(lcd->pins.d7, (b >> 3) & 1));
         CHECK(gpio_set_level(lcd->pins.d6, (b >> 2) & 1));

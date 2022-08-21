@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "freertos/event_groups.h"
+#include "esp_rom_gpio.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_https_ota.h"
@@ -57,8 +58,13 @@ static void ota_task(void * pvParameter) {
     esp_http_client_config_t config = {};
     config.url = ota_url;
 
-    esp_err_t ret = esp_https_ota(&config);
+    esp_https_ota_config_t ota_config = {};
+    ota_config.http_config = &config;
+
+    ESP_LOGI(TAG, "Attempting to download update from %s", config.url);
+    esp_err_t ret = esp_https_ota(&ota_config);
     if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "OTA Succeed, Rebooting...");
         esp_restart();
     } else {
         ESP_LOGE(TAG, "Firmware Upgrades Failed");
@@ -170,17 +176,17 @@ extern "C" void app_main() {
 
     mqttWait();
 
-    gpio_pad_select_gpio(BTN_BOOT);
+    esp_rom_gpio_pad_select_gpio(BTN_BOOT);
     gpio_set_direction(BTN_BOOT, GPIO_MODE_INPUT);
     buttonTimer = xTimerCreate("ButtonTimer", (5 / portTICK_PERIOD_MS), pdTRUE, (void *) 0, buttonTimerCallback);
 
     xTimerStart(buttonTimer, 0);
 
     char ready[16 + 1];
-    snprintf(ready, sizeof(ready), "Ready! %db", esp_get_minimum_free_heap_size());
+    snprintf(ready, sizeof(ready), "Ready! %lub", esp_get_minimum_free_heap_size());
     ESP_ERROR_CHECK(hd44780_clear(&lcd));
     ESP_ERROR_CHECK(hd44780_puts(&lcd, ready));
 
-    printf("Minimum free heap size: %d bytes\n", esp_get_minimum_free_heap_size());
+    printf("Minimum free heap size: %lu bytes\n", esp_get_minimum_free_heap_size());
 
 }

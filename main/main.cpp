@@ -19,6 +19,7 @@
 static const char *TAG = "app";
 
 #define BTN_BOOT GPIO_NUM_0
+#define BTN_ALT GPIO_NUM_21
 
 #define GPIO_OUTPUT_IO_RS    GPIO_NUM_13
 #define GPIO_OUTPUT_IO_E     GPIO_NUM_27
@@ -42,7 +43,8 @@ static void buttonPressed() {
 }
 
 static void buttonTimerCallback(TimerHandle_t xTimer) { 
-    int level = gpio_get_level(BTN_BOOT);
+    // Active low!
+    int level = gpio_get_level(BTN_BOOT) && gpio_get_level(BTN_ALT);
 
     // https://www.embedded.com/electronics-blogs/break-points/4024981/My-favorite-software-debouncers
     static uint16_t state = 0; // Current debounce status
@@ -178,6 +180,12 @@ extern "C" void app_main() {
 
     esp_rom_gpio_pad_select_gpio(BTN_BOOT);
     gpio_set_direction(BTN_BOOT, GPIO_MODE_INPUT);
+
+    esp_rom_gpio_pad_select_gpio(BTN_ALT);
+    gpio_set_direction(BTN_ALT, GPIO_MODE_INPUT);
+    gpio_set_pull_mode(BTN_ALT, GPIO_PULLUP_ONLY);
+
+    
     buttonTimer = xTimerCreate("ButtonTimer", (5 / portTICK_PERIOD_MS), pdTRUE, (void *) 0, buttonTimerCallback);
 
     xTimerStart(buttonTimer, 0);

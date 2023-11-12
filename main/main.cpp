@@ -35,14 +35,21 @@ static hd44780_t lcd;
 
 static TimerHandle_t buttonTimer;
 
-static void buttonPressed() {
+static void buttonPressed(int count) {
     ESP_ERROR_CHECK(hd44780_clear(&lcd));
-    ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button!"));
-
-    mqttPublish("devices/receiver/doorbell/reset", "true", 4, 2, 0);
+    if(count == 1) {
+        ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button!"));
+        mqttPublish("devices/receiver/doorbell/reset", "true", 4, 2, 0);
+    } else {
+        ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button++!"));
+        mqttPublish("cmnd/tasmota_81B55D/Power", "toggle", 6, 2, 0);
+    }
 }
 
 static void buttonTimerCallback(TimerHandle_t xTimer) { 
+    static int countDown = 0;
+    static int count = 0;
+
     // Active low!
     int level = gpio_get_level(BTN_BOOT) && gpio_get_level(BTN_ALT);
 
@@ -50,7 +57,16 @@ static void buttonTimerCallback(TimerHandle_t xTimer) {
     static uint16_t state = 0; // Current debounce status
     state=(state<<1) | !level | 0xe000;
     if(state==0xf000) {
-        buttonPressed();
+        countDown = 100;
+        count++;
+    }
+
+    if(countDown > 0) {
+        countDown--;
+        if(countDown == 0) {
+            buttonPressed(count);
+            count = 0;        
+        }
     }
 }
 

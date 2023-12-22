@@ -34,15 +34,40 @@ static const char* ota_url = "http://raspberrypi.fritz.box:8032/esp32/1602RawIdf
 static hd44780_t lcd;
 
 static TimerHandle_t buttonTimer;
+static TimerHandle_t clearTimer;
+
+static uint8_t cabinetState = 0;
 
 static void buttonPressed(int count) {
-    ESP_ERROR_CHECK(hd44780_clear(&lcd));
-    if(count == 1) {
-        ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button!"));
-        mqttPublish("devices/receiver/doorbell/reset", "true", 4, 2, 0);
-    } else {
-        ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button++!"));
-        mqttPublish("cmnd/tasmota_81B55D/Power", "toggle", 6, 2, 0);
+    if(count >= 1 && count <= 3) {
+        ESP_ERROR_CHECK(hd44780_clear(&lcd));
+        if(count == 1) {
+            ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button!"));
+            mqttPublish("devices/receiver/doorbell/reset", "true", 4, 2, 0);
+        } else if (count == 2) {
+            ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button x 2!"));
+            mqttPublish("cmnd/tasmota_81B55D/Power", "toggle", 6, 2, 0);
+        } else if (count == 3) {
+            ESP_ERROR_CHECK(hd44780_puts(&lcd, "Button x 3!"));
+
+            const char * payload = NULL;
+            switch(cabinetState) {
+                case 0:
+                    payload = "high";
+                    break;
+                case 1:
+                    payload = "low";
+                    break;
+                case 2:
+                    payload = "off";
+                    break;
+            }
+
+            mqttPublish("devices/cc2500/cabinet", payload, strlen(payload), 2, 0);
+
+            cabinetState = (cabinetState + 1) % 3;
+        }
+        xTimerStart(clearTimer, 0);
     }
 }
 
@@ -57,7 +82,7 @@ static void buttonTimerCallback(TimerHandle_t xTimer) {
     static uint16_t state = 0; // Current debounce status
     state=(state<<1) | !level | 0xe000;
     if(state==0xf000) {
-        countDown = 100;
+        countDown = 90; // * 5ms = 450ms
         count++;
     }
 
@@ -70,8 +95,16 @@ static void buttonTimerCallback(TimerHandle_t xTimer) {
     }
 }
 
+static void clearTimerCallback(TimerHandle_t xTimer) { 
+    ESP_ERROR_CHECK(hd44780_clear(&lcd));
+    ESP_ERROR_CHECK(hd44780_puts(&lcd, "ZzZZz..."));
+}
+
 static void ota_task(void * pvParameter) {
     ESP_LOGI(TAG, "Starting OTA update...");
+
+    ESP_ERROR_CHECK(hd44780_clear(&lcd));
+    ESP_ERROR_CHECK(hd44780_puts(&lcd, "Downloading..."));
 
     esp_http_client_config_t config = {};
     config.url = ota_url;
@@ -82,9 +115,13 @@ static void ota_task(void * pvParameter) {
     ESP_LOGI(TAG, "Attempting to download update from %s", config.url);
     esp_err_t ret = esp_https_ota(&ota_config);
     if (ret == ESP_OK) {
+        ESP_ERROR_CHECK(hd44780_clear(&lcd));
+        ESP_ERROR_CHECK(hd44780_puts(&lcd, "Reboot!"));
         ESP_LOGI(TAG, "OTA Succeed, Rebooting...");
         esp_restart();
     } else {
+        ESP_ERROR_CHECK(hd44780_clear(&lcd));
+        ESP_ERROR_CHECK(hd44780_puts(&lcd, "Failed OTA"));
         ESP_LOGE(TAG, "Firmware Upgrades Failed");
     }
     while (1) {
@@ -201,8 +238,8 @@ extern "C" void app_main() {
     gpio_set_direction(BTN_ALT, GPIO_MODE_INPUT);
     gpio_set_pull_mode(BTN_ALT, GPIO_PULLUP_ONLY);
 
-    
     buttonTimer = xTimerCreate("ButtonTimer", (5 / portTICK_PERIOD_MS), pdTRUE, (void *) 0, buttonTimerCallback);
+    clearTimer = xTimerCreate("Cleartimer", (2000 / portTICK_PERIOD_MS), pdFALSE, (void *) 0, clearTimerCallback);
 
     xTimerStart(buttonTimer, 0);
 
@@ -211,6 +248,7 @@ extern "C" void app_main() {
     ESP_ERROR_CHECK(hd44780_clear(&lcd));
     ESP_ERROR_CHECK(hd44780_puts(&lcd, ready));
 
-    printf("Minimum free heap size: %lu bytes\n", esp_get_minimum_free_heap_size());
+    xTimerStart(clearTimer, 0);
 
+    printf("Minimum free heap size: %lu bytes\n", esp_get_minimum_free_heap_size());
 }
